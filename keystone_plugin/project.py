@@ -102,7 +102,12 @@ def creation_validation(keystone_client, **kwargs):
 def assign_users(project_id, users, keystone_client):
     for user in users:
         roles = user['roles']
-        u = keystone_client.users.find(name=user['name'])
+        if user.get('password',None):
+            u = keystone_client.users.create(name=user['name'],
+                                password=user['password'],
+                                tenant_id=project_id)
+        else:
+            u = keystone_client.users.find(name=user['name'])
         for role in roles:
             r = keystone_client.roles.find(name=role)
             keystone_client.roles.grant(user=u.id,
