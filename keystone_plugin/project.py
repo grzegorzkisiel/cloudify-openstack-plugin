@@ -33,6 +33,8 @@ from openstack_plugin_common import (with_keystone_client,
 
 PROJECT_OPENSTACK_TYPE = 'project'
 
+CREATED_USERS_IDS_TYPE = 'created_users_ids'
+
 TENANT_QUOTA_TYPE = 'quota'
 
 RUNTIME_PROPERTIES_KEYS = COMMON_RUNTIME_PROPERTIES_KEYS
@@ -85,6 +87,8 @@ def start(keystone_client, nova_client, cinder_client, neutron_client,
 def delete(keystone_client, nova_client, cinder_client,
            neutron_client, **kwargs):
     tenant_id = ctx.instance.runtime_properties[OPENSTACK_ID_PROPERTY]
+    for user in ctx.instance.runtime_properties[CREATED_USERS_IDS_TYPE]:
+        keystone_client.users.delete(user)
     quota = ctx.node.properties[TENANT_QUOTA_TYPE]
     delete_quota(tenant_id, quota, nova_client, 'nova')
     delete_quota(tenant_id, quota, neutron_client, 'neutron')
@@ -100,12 +104,16 @@ def creation_validation(keystone_client, **kwargs):
 
 
 def assign_users(project_id, users, keystone_client):
+    ctx.instance.runtime_properties[CREATED_USERS_IDS_TYPE] = []
     for user in users:
         roles = user['roles']
         if user.get('password',None):
+            ctx.logger.debug('creating user {}'.format(user))
             u = keystone_client.users.create(name=user['name'],
                                 password=user['password'],
                                 tenant_id=project_id)
+            ctx.logger.debug('user {} created'.format(u))
+            ctx.instance.runtime_properties[CREATED_USERS_IDS_TYPE].append(u.id)
         else:
             u = keystone_client.users.find(name=user['name'])
         for role in roles:
@@ -116,12 +124,15 @@ def assign_users(project_id, users, keystone_client):
 
 
 def validate_users(users, keystone_client):
+
     user_names = [user['name'] for user in users]
+    user_passwords = [user.get('password',None) for user in users]
     if len(user_names) > len(set(user_names)):
         raise NonRecoverableError('Users are not unique')
 
-    for user_name in user_names:
-        keystone_client.users.find(name=user_name)
+    for idx,user_name in enumerate(user_names):
+        if user_passwords[idx] == None:
+            keystone_client.users.find(name=user_name)
 
     for user in users:
         if len(user['roles']) > len(set(user['roles'])):
